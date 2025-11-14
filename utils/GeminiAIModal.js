@@ -7,8 +7,12 @@ const {
 const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
-const model = genAI.getGenerativeModel({
+const primaryModel = genAI.getGenerativeModel({
   model: "gemini-2.5-flash",
+});
+
+const fallbackModel = genAI.getGenerativeModel({
+  model: "gemini-pro",
 });
 
 const generationConfig = {
@@ -38,7 +42,12 @@ const safetySettings=[
   }
 ];
 
-export const chatSession = model.startChat({
+export const chatSession = primaryModel.startChat({
     generationConfig,
     safetySettings,
   });
+
+export const fallbackChatSession = fallbackModel.startChat({
+  generationConfig,
+  safetySettings,
+});
