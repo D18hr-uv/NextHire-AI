@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { chatSession } from "@/utils/GeminiAIModal";
+import { chatSession, fallbackChatSession } from "@/utils/GeminiAIModal";
 import { LoaderCircle, Sparkles } from "lucide-react";
 import { MockInterview } from "@/utils/schema";
 import { v4 as uuidv4 } from 'uuid';
@@ -68,6 +68,22 @@ function AddNewInterview() {
     }
   };
 
+  const handleSuccess = async (mockResponse) => {
+    const res = await db.insert(MockInterview)
+      .values({
+        mockId: uuidv4(),
+        jsonMockResp: JSON.stringify(mockResponse),
+        jobPosition: jobPosition,
+        jobDesc: jobDescription,
+        jobExperience: jobExperience,
+        createdBy: user?.primaryEmailAddress?.emailAddress,
+        createdAt: moment().format('DD-MM-YYYY'),
+      }).returning({ mockId: MockInterview.mockId });
+
+    toast.success('Interview questions generated successfully!');
+    router.push(`/dashboard/interview/${res[0]?.mockId}`);
+  };
+
   const onSubmit = async (e) => {
     setLoading(true);
     e.preventDefault();
@@ -75,28 +91,30 @@ function AddNewInterview() {
     const inputPrompt = `Job position: ${jobPosition}, Job Description: ${jobDescription}, Years of Experience: ${jobExperience}.
     Generate ${process.env.NEXT_PUBLIC_INTERVIEW_QUESTION_COUNT} interview questions and answers in JSON format.`;
 
-    try {
-      const result = await chatSession.sendMessage(inputPrompt);
-      const mockResponse = JSON.parse(result.response.text());
-      setJsonResponse(result.response.text());
+    try{
+      // Primary model attempt
+      try {
+        const result = await chatSession.sendMessage(inputPrompt);
+        const mockResponse = JSON.parse(result.response.text());
+        setJsonResponse(result.response.text());
+        if (mockResponse) {
+          await handleSuccess(mockResponse);
+          return;
+        }
+      } catch (error) {
+        console.warn("Primary model failed, trying fallback:", error);
+      }
 
-      if (mockResponse) {
-        const res = await db.insert(MockInterview)
-          .values({
-            mockId: uuidv4(),
-            jsonMockResp: JSON.stringify(mockResponse),
-            jobPosition: jobPosition,
-            jobDesc: jobDescription,
-            jobExperience: jobExperience,
-            createdBy: user?.primaryEmailAddress?.emailAddress,
-            createdAt: moment().format('DD-MM-YYYY'),
-          }).returning({ mockId: MockInterview.mockId });
-        toast.success('Interview questions generated successfully!');
-        router.push('/dashboard/interview/' + res[0]?.mockId);
+      // Fallback model attempt
+      const fallbackResult = await fallbackChatSession.sendMessage(inputPrompt);
+      const fallbackMockResponse = JSON.parse(fallbackResult.response.text());
+      setJsonResponse(fallbackResult.response.text());
+      if (fallbackMockResponse) {
+        await handleSuccess(fallbackMockResponse);
       }
     } catch (error) {
-      console.error("Error generating interview:", error);
-      toast.error('There was an error generating the interview questions. Please try again later.');
+      console.error("Error generating interview with both models:", error);
+      toast.error('The AI model is currently overloaded. Please try again later.');
     } finally {
       setLoading(false);
     }
